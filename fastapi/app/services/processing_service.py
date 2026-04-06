@@ -24,19 +24,34 @@ class ProcessingService:
         self._text_extraction_service = TextExtractionService()
         self._chunking_service = ChunkingService()
         self._embedding_service = EmbeddingService()
+        self._bootstrap_indexed_files()
 
     def set_uploaded(self, file_id: str, stored_path: str) -> None:
         self._status_by_file_id[file_id] = ProcessingStatus.UPLOADED
         self._path_by_file_id[file_id] = stored_path
 
     def get_status(self, file_id: str) -> ProcessingStatus | None:
-        return self._status_by_file_id.get(file_id)
+        status = self._status_by_file_id.get(file_id)
+        if status is None and vector_store.has_file(file_id):
+            self._status_by_file_id[file_id] = ProcessingStatus.INDEXED
+            self._chunks_by_file_id[file_id] = vector_store.get_chunks(file_id)
+            return ProcessingStatus.INDEXED
+        return status
 
     def get_chunks(self, file_id: str) -> list[ChunkRecord] | None:
-        return self._chunks_by_file_id.get(file_id)
+        chunks = self._chunks_by_file_id.get(file_id)
+        if chunks is None and vector_store.has_file(file_id):
+            chunks = vector_store.get_chunks(file_id)
+            self._chunks_by_file_id[file_id] = chunks
+        return chunks
 
     def get_failure_reason(self, file_id: str) -> str | None:
         return self._failure_reason_by_file_id.get(file_id)
+
+    def _bootstrap_indexed_files(self) -> None:
+        for file_id in vector_store.list_indexed_file_ids():
+            self._status_by_file_id[file_id] = ProcessingStatus.INDEXED
+            self._chunks_by_file_id[file_id] = vector_store.get_chunks(file_id)
 
     def start_pipeline(self, file_id: str) -> None:
         status = self.get_status(file_id)

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "GenAI FastAPI Service"
     api_v1_prefix: str = "/api/v1"
     upload_dir: str = "storage/uploads"
+    vector_store_dir: str = "storage/vector_index"
     chunk_size: int = 1000
     chunk_overlap: int = 150
     embedding_provider: str = "local"

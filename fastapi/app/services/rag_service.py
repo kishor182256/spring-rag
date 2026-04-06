@@ -39,7 +39,7 @@ class RagService:
         self._embedding_service = EmbeddingService()
         self._openai_client = None
         self._ollama_endpoint: str | None = None
-        self._answer_cache: dict[tuple[str, str], tuple[float, str, int]] = {}
+        self._answer_cache: dict[tuple[str, str, str], tuple[float, str, int]] = {}
         if (
             settings.llm_provider.lower() == "openai"
             and settings.openai_chat_enabled
@@ -50,7 +50,11 @@ class RagService:
 
     def answer(self, query: str) -> tuple[str, int]:
         normalized_query = self._normalize_query_for_retrieval(query)
-        cache_key = (settings.llm_provider.lower().strip(), normalized_query.lower())
+        cache_key = (
+            settings.llm_provider.lower().strip(),
+            normalized_query.lower(),
+            str(vector_store.cache_version()),
+        )
         cache_ttl = max(0, int(settings.rag_answer_cache_ttl_seconds))
         now = time.time()
         if cache_ttl > 0:
@@ -102,7 +106,13 @@ class RagService:
             top_k * settings.retrieval_candidate_multiplier,
             settings.retrieval_semantic_pool,
         )
-        candidates = vector_store.semantic_candidates(query_vector=query_vector, limit=semantic_limit)
+        semantic_candidates = vector_store.semantic_candidates(query_vector=query_vector, limit=semantic_limit)
+        lexical_candidates = vector_store.lexical_candidates(
+            query_tokens=query_tokens,
+            raw_query=raw_query,
+            limit=semantic_limit,
+        )
+        candidates = semantic_candidates + lexical_candidates
         scored: list[RetrievedMatch] = []
 
         for semantic_score, chunk, chunk_tokens in candidates:

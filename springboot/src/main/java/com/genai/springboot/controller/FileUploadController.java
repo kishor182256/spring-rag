@@ -5,7 +5,6 @@ import com.genai.springboot.dto.FileStatusResponse;
 import com.genai.springboot.dto.FileUploadResponse;
 import com.genai.springboot.dto.UploadPipelineResponse;
 import com.genai.springboot.exception.FileStorageException;
-import com.genai.springboot.exception.ResourceNotFoundException;
 import com.genai.springboot.service.FastApiIngestService;
 import com.genai.springboot.service.FileStorageService;
 import com.genai.springboot.service.UploadOrchestrationService;
@@ -71,32 +70,26 @@ public class FileUploadController {
 
     @GetMapping("/{id}/status")
     public ApiResponse<FileStatusResponse> getStatus(@PathVariable("id") String fileId) {
-        if (!uploadTrackingService.exists(fileId)) {
-            throw new ResourceNotFoundException("File id not found: " + fileId);
+        if (uploadTrackingService.exists(fileId)) {
+            String trackedStatus = uploadTrackingService.getStatus(fileId);
+            if ("FAILED".equals(trackedStatus)) {
+                String reason = uploadTrackingService.getFailureReason(fileId);
+                return ApiResponse.success(
+                        "File status fetched: " + (reason == null ? "Processing failed" : reason),
+                        new FileStatusResponse(fileId, "FAILED")
+                );
+            }
+
+            if ("UPLOADED".equals(trackedStatus) || "FORWARDING".equals(trackedStatus)) {
+                return ApiResponse.success(
+                        "File status fetched successfully",
+                        new FileStatusResponse(fileId, trackedStatus)
+                );
+            }
         }
 
-        String trackedStatus = uploadTrackingService.getStatus(fileId);
-        if ("FAILED".equals(trackedStatus)) {
-            String reason = uploadTrackingService.getFailureReason(fileId);
-            return ApiResponse.success(
-                    "File status fetched: " + (reason == null ? "Processing failed" : reason),
-                    new FileStatusResponse(fileId, "FAILED")
-            );
-        }
-
-        if ("UPLOADED".equals(trackedStatus) || "FORWARDING".equals(trackedStatus)) {
-            return ApiResponse.success(
-                    "File status fetched successfully",
-                    new FileStatusResponse(fileId, trackedStatus)
-            );
-        }
-
-        String status;
-        try {
-            status = fastApiIngestService.fetchProcessingStatus(fileId);
-        } catch (ResourceNotFoundException ex) {
-            status = "PROCESSING";
-        }
+        // Fallback to FastAPI status for persisted/older fileIds not present in local memory map.
+        String status = fastApiIngestService.fetchProcessingStatus(fileId);
         return ApiResponse.success(
                 "File status fetched successfully",
                 new FileStatusResponse(fileId, status)
@@ -110,10 +103,7 @@ public class FileUploadController {
             @RequestParam(name = "limit", defaultValue = "10") int limit,
             @RequestParam(name = "includeText", defaultValue = "false") boolean includeText
     ) {
-        if (!uploadTrackingService.exists(fileId)) {
-            throw new ResourceNotFoundException("File id not found: " + fileId);
-        }
-
+        // Always ask FastAPI. It is the source of truth for persisted chunk index.
         Object chunks = fastApiIngestService.fetchChunks(fileId, offset, limit, includeText);
         return ApiResponse.success("File chunks fetched successfully", chunks);
     }
